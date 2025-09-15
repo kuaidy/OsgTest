@@ -23,6 +23,9 @@
 #include <GeomLProp_SLProps.hxx>
 #include <BRepTools.hxx>
 #include <HLRTopoBRep_OutLiner.hxx>
+#include <HLRBRep_PolyAlgo.hxx>
+#include <HLRBRep_PolyHLRToShape.hxx>
+#include <BRep_Builder.hxx>
 
 //bool GltfManager::ReadFile(const std::string fileName) {
 //	//得到文件夹
@@ -156,6 +159,9 @@ bool GltfManager::ReadFile(const std::string& fileName) {
 	std::ofstream dxf("outline.dxf");
 	dxf << "0\nSECTION\n2\nENTITIES\n";
 
+	std::ofstream polydxf("poly.dxf");
+	polydxf << "0\nSECTION\n2\nENTITIES\n";
+
 	for (const auto& mesh : model.meshes) {
 		double tolerance = 1.0e-4;
 		// sewing 用于把多个 face 合并成一个 shape
@@ -204,7 +210,7 @@ bool GltfManager::ReadFile(const std::string& fileName) {
 					indices.push_back(index);
 				}
 			}
-			
+
 			//构建边和面的对应
 			std::map<Edge, std::vector<int>> edgeToFaces;
 			size_t faceId = 0;
@@ -215,7 +221,6 @@ bool GltfManager::ReadFile(const std::string& fileName) {
 				size_t i2 = indices[i + 2];
 
 				Face f{ {i0, i1, i2} };
-				facesOut.push_back(f);
 				gp_Pnt p1(positions[3 * indices[i] + 0], positions[3 * indices[i] + 1], positions[3 * indices[i] + 2]);
 				gp_Pnt p2(positions[3 * indices[i + 1] + 0], positions[3 * indices[i + 1] + 1], positions[3 * indices[i + 1] + 2]);
 				gp_Pnt p3(positions[3 * indices[i + 2] + 0], positions[3 * indices[i + 2] + 1], positions[3 * indices[i + 2] + 2]);
@@ -223,9 +228,10 @@ bool GltfManager::ReadFile(const std::string& fileName) {
 				gp_Vec v1(p1, p2);
 				gp_Vec v2(p1, p3);
 				gp_Vec n = v1.Crossed(v2);
-				if (n.Magnitude() > 1e-10) 
+				if (n.Magnitude() > 1e-10)
 					n.Normalize();
 				f.normal = n;
+				facesOut.push_back(f);
 
 				// 三条边
 				Edge e1(i0, i1);
@@ -238,9 +244,10 @@ bool GltfManager::ReadFile(const std::string& fileName) {
 
 				++faceId;
 			}
+			std::cout << "总共多少个面:" << faceId << std::endl;
 			//计算轮廓边
-			gp_Vec viewDir(0, 1, 0);
-			auto projectToPlane = [](const gp_Pnt& p) { return std::pair<double, double>{p.X(), p.Z()}; };
+			gp_Vec viewDir(0, 0, 1);
+			auto projectToPlane = [](const gp_Pnt& p) { return std::pair<double, double>{p.X(), p.Y()}; };
 			std::vector<Edge> silhouetteEdges;
 			for (const auto& kv : edgeToFaces) {
 				const Edge& edge = kv.first;
@@ -258,6 +265,9 @@ bool GltfManager::ReadFile(const std::string& fileName) {
 					if (dot1 * dot2 < 0) {
 						silhouetteEdges.push_back(edge); // 剪影边
 					}
+					else if ((std::abs(dot1) == 1 && std::abs(dot2) == 0) || (std::abs(dot1) == 0 && std::abs(dot2) == 1)) {
+						silhouetteEdges.push_back(edge); // 剪影边
+					}
 				}
 			}
 
@@ -268,8 +278,8 @@ bool GltfManager::ReadFile(const std::string& fileName) {
 
 			for (const Edge& e : silhouetteEdges)
 			{
-				gp_Pnt p1(positions[3 * e.v1 + 0],positions[3 * e.v1 + 1],positions[3 * e.v1 + 2]);
-				gp_Pnt p2(positions[3 * e.v2 + 0],positions[3 * e.v2 + 1],positions[3 * e.v2 + 2]);
+				gp_Pnt p1(positions[3 * e.v1 + 0], positions[3 * e.v1 + 1], positions[3 * e.v1 + 2]);
+				gp_Pnt p2(positions[3 * e.v2 + 0], positions[3 * e.v2 + 1], positions[3 * e.v2 + 2]);
 
 				auto [x1, y1] = projectToPlane(p1);
 				auto [x2, y2] = projectToPlane(p2);
@@ -280,55 +290,113 @@ bool GltfManager::ReadFile(const std::string& fileName) {
 			}
 
 			// 按三角形生成 face
-			//if (size(indices) > 0) {
-			//	for (size_t i = 0; i < size(indices); i += 3) {
-			//		gp_Pnt p1(positions[3 * indices[i] + 0],
-			//			positions[3 * indices[i] + 1],
-			//			positions[3 * indices[i] + 2]);
-			//		gp_Pnt p2(positions[3 * indices[i + 1] + 0],
-			//			positions[3 * indices[i + 1] + 1],
-			//			positions[3 * indices[i + 1] + 2]);
-			//		gp_Pnt p3(positions[3 * indices[i + 2] + 0],
-			//			positions[3 * indices[i + 2] + 1],
-			//			positions[3 * indices[i + 2] + 2]);
+			if (size(indices) > 0) {
+				for (size_t i = 0; i < size(indices); i += 3) {
+					gp_Pnt p1(positions[3 * indices[i] + 0],
+						positions[3 * indices[i] + 1],
+						positions[3 * indices[i] + 2]);
+					gp_Pnt p2(positions[3 * indices[i + 1] + 0],
+						positions[3 * indices[i + 1] + 1],
+						positions[3 * indices[i + 1] + 2]);
+					gp_Pnt p3(positions[3 * indices[i + 2] + 0],
+						positions[3 * indices[i + 2] + 1],
+						positions[3 * indices[i + 2] + 2]);
 
-			//		// 创建三角形 wire
-			//		BRepBuilderAPI_MakePolygon poly;
-			//		poly.Add(p1);
-			//		poly.Add(p2);
-			//		poly.Add(p3);
-			//		poly.Close();
-			//		TopoDS_Wire wire = poly.Wire();
+					// 创建三角形 wire
+					BRepBuilderAPI_MakePolygon poly;
+					poly.Add(p1);
+					poly.Add(p2);
+					poly.Add(p3);
+					poly.Close();
+					TopoDS_Wire wire = poly.Wire();
 
-			//		// 计算三角形法线
-			//		gp_Vec v1(p2.XYZ() - p1.XYZ());
-			//		gp_Vec v2(p3.XYZ() - p1.XYZ());
-			//		gp_Dir normal(v1.Crossed(v2));
-			//		// 创建平面
-			//		gp_Pln plane(p1, normal);
-			//		// 创建 face
-			//		TopoDS_Face face = BRepBuilderAPI_MakeFace(plane, wire);
-			//		//if (face.Orientation() == TopAbs_REVERSED) {
-			//		//	face.Reverse(); // 确保所有面法线方向一致
-			//		//}
-			//		sewing.Add(face);
-			//	}
+					// 计算三角形法线
+					gp_Vec v1(p2.XYZ() - p1.XYZ());
+					gp_Vec v2(p3.XYZ() - p1.XYZ());
+					gp_Dir normal(v1.Crossed(v2));
+					// 创建平面
+					gp_Pln plane(p1, normal);
+					// 创建 face
+					TopoDS_Face face = BRepBuilderAPI_MakeFace(plane, wire);
+					//if (face.Orientation() == TopAbs_REVERSED) {
+					//	face.Reverse(); // 确保所有面法线方向一致
+					//}
+					sewing.Add(face);
+				}
+			}
+
+			//直接使用网格三角形
+			TColgp_Array1OfPnt nodes(1, positions.size() / 3);
+			for (size_t i = 0; i < positions.size() / 3; ++i)
+				nodes.SetValue(i + 1, gp_Pnt(positions[3 * i], positions[3 * i + 1], positions[3 * i + 2]));
+
+			Poly_Array1OfTriangle triangles(1, indices.size() / 3);
+			for (size_t i = 0; i < indices.size() / 3; ++i)
+				triangles.SetValue(i + 1, Poly_Triangle(
+					indices[3 * i] + 1,
+					indices[3 * i + 1] + 1,
+					indices[3 * i + 2] + 1));
+
+			//Handle(Poly_Triangulation) triangulation = new Poly_Triangulation(nodes, triangles, Standard_False);
+			//// ==== 3. 创建一个占位 Face，并关联 Triangulation ====
+			//gp_Pln plane(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1));
+			//BRepBuilderAPI_MakeFace faceMaker(plane);
+			//TopoDS_Face face = faceMaker.Face();
+			//BRep_Builder builder;
+			//builder.UpdateFace(face, triangulation);
+
+			// 创建面并附加三角网格
+	/*		BRep_Builder builder;
+			TopoDS_Face face;
+			builder.MakeFace(face);
+			builder.UpdateFace(face, triangulation, Standard_True);*/
+
+			// ==== 4. HLR PolyAlgo 计算隐藏线 ====
+			//Handle(HLRBRep_PolyAlgo) hlrAlgo = new HLRBRep_PolyAlgo();
+			//gp_Ax2 view(gp::Origin(), gp::DZ());
+			//hlrAlgo->Projector(HLRAlgo_Projector(view));
+			//hlrAlgo->Load(face);
+			//hlrAlgo->Update();
+
+			//HLRBRep_PolyHLRToShape extractor;
+			//extractor.Update(hlrAlgo);
+			//TopoDS_Shape visibleEdges = extractor.VCompound();
+
+			// ==== 5. 输出 DXF ====
+
+			// 遍历 TopoDS_Edge 输出线段
+			//for (TopExp_Explorer exp(visibleEdges, TopAbs_EDGE); exp.More(); exp.Next()) {
+			//	TopoDS_Edge edge = TopoDS::Edge(exp.Current());
+
+			//	// 获取顶点
+			//	Standard_Real x1, y1, z1, x2, y2, z2;
+			//	TopoDS_Vertex v1, v2;
+			//	TopExp::Vertices(edge, v1, v2);
+			//	gp_Pnt p1 = BRep_Tool::Pnt(v1);
+			//	gp_Pnt p2 = BRep_Tool::Pnt(v2);
+
+			//	polydxf << "0\nLINE\n8\n0\n";
+			//	polydxf << "10\n" << p1.X() << "\n20\n" << p1.Y() << "\n30\n" << p1.Z() << "\n";
+			//	polydxf << "11\n" << p2.X() << "\n21\n" << p2.Y() << "\n31\n" << p2.Z() << "\n";
 			//}
+
 		}
-		//// 合并成一个 shape
-		//sewing.Perform();
-		//TopoDS_Shape shape = sewing.SewedShape();
-		////// 三角化处理
-		////BRepMesh_IncrementalMesh mesh(shape, 1.0e-3);
-		////mesh.Perform();
-		//// 加入 XCAF
-		//shapeTool->AddShape(shape);
+		// 合并成一个 shape
+		sewing.Perform();
+		TopoDS_Shape shape = sewing.SewedShape();
+		//// 三角化处理
+		//BRepMesh_IncrementalMesh mesh(shape, 1.0e-3);
+		//mesh.Perform();
+		// 加入 XCAF
+		shapeTool->AddShape(shape);
 	}
 
 	dxf << "0\nENDSEC\n0\nEOF\n";
 	dxf.close();
 
-	return true;
+	polydxf << "0\nENDSEC\n0\nEOF\n";
+	polydxf.close();
+
 	// 4️⃣ 输出统计
 	TDF_LabelSequence freeShapes;
 	shapeTool->GetFreeShapes(freeShapes);
@@ -344,55 +412,11 @@ bool GltfManager::ReadFile(const std::string& fileName) {
 		TopTools_IndexedDataMapOfShapeListOfShape edgeToFaces;
 		TopExp::MapShapesAndAncestors(shape, TopAbs_EDGE, TopAbs_FACE, edgeToFaces);
 
-		std::vector<TopoDS_Edge> contourEdges;
-		for (int i = 1; i <= edgeToFaces.Extent(); i++) {
-			const TopoDS_Edge& edge = TopoDS::Edge(edgeToFaces.FindKey(i));
-			const TopTools_ListOfShape& faces = edgeToFaces.FindFromIndex(i);
-
-			if (faces.Extent() == 2) {
-				// 计算两个面的法向量
-				gp_Vec normal1 = GetFaceNormal(faces.First());
-				gp_Vec normal2 = GetFaceNormal(faces.Last());
-
-				// 检查法向量与视图方向的点积符号是否不同
-				double dot1 = normal1.Dot(viewDir);
-				double dot2 = normal2.Dot(viewDir);
-
-				if ((dot1 * dot2 < 0)) {
-					contourEdges.push_back(edge);
-				}
-				else if ((std::abs(dot1) == 1 && std::abs(dot2) == 0) || (std::abs(dot1) == 0 && std::abs(dot2) == 1)) {
-					contourEdges.push_back(edge);
-				}
-			}
-			else if (faces.Extent() == 1) {
-				//自由边
-				contourEdges.push_back(edge);
-			}
-		}
-		////写dxf
-		std::ofstream dxf("test.dxf");
-		dxf << "0\nSECTION\n2\nENTITIES\n";
-		for (auto contourEdge : contourEdges) {
-			gp_Pnt p1;
-			gp_Pnt p2;
-
-			TopoDS_Vertex v1, v2;
-			TopExp::Vertices(contourEdge, v1, v2); // 获取 edge 两端顶点
-			p1 = BRep_Tool::Pnt(v1);
-			p2 = BRep_Tool::Pnt(v2);
-
-			dxf << "0\nLINE\n8\n0\n";
-			dxf << "10\n" << p1.X() << "\n20\n" << p1.Y() << "\n30\n" << p1.Z() << "\n";
-			dxf << "11\n" << p2.X() << "\n21\n" << p2.Y() << "\n31\n" << p2.Z() << "\n";
-		}
-		dxf << "0\nENDSEC\n0\nEOF\n";
-
 		////做二维投影
 		//Handle(HLRBRep_Algo) hlr = new HLRBRep_Algo();
 		//hlr->Add(shape);
 		////定义投影视角
-		//gp_Ax2 view(gp::Origin(), gp::DY());
+		//gp_Ax2 view(gp::Origin(), gp::DZ());
 		//hlr->Projector(HLRAlgo_Projector(view));
 		//hlr->Update();
 		//hlr->Hide();
@@ -403,39 +427,95 @@ bool GltfManager::ReadFile(const std::string& fileName) {
 		//auto rg1lineEdges = hlrToShape.Rg1LineVCompound();
 		//auto outlineEdges = hlrToShape.OutLineVCompound();//轮廓线
 
-		////写dxf
-		//std::ofstream dxf("test.dxf");
+
+		Handle(HLRBRep_PolyAlgo) polyAlgo = new HLRBRep_PolyAlgo();
+		gp_Ax2 view(gp::Origin(), gp::DZ());
+		polyAlgo->Projector(HLRAlgo_Projector(view));
+		polyAlgo->Load(shape);   // 加载模型
+		polyAlgo->Update();      // 计算隐藏线
+
+		// 提取可见边
+		HLRBRep_PolyHLRToShape extractor;
+		extractor.Update(polyAlgo);
+		TopoDS_Shape visibleEdges = extractor.VCompound(); // 可见线集合
+
+		//写dxf
+		std::ofstream visibledxf("visible.dxf");
+		visibledxf << "0\nSECTION\n2\nENTITIES\n";
+		for (TopExp_Explorer exp(visibleEdges, TopAbs_EDGE); exp.More(); exp.Next()) {
+			TopoDS_Edge edge = TopoDS::Edge(exp.Current());
+			gp_Pnt p1;
+			gp_Pnt p2;
+
+			TopoDS_Vertex v1, v2;
+			TopExp::Vertices(edge, v1, v2); // 获取 edge 两端顶点
+			p1 = BRep_Tool::Pnt(v1);
+			p2 = BRep_Tool::Pnt(v2);
+
+			//Standard_Real f, l;
+			//Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, f, l);
+			//if (!curve.IsNull()) {
+			//	p1 = curve->Value(f);
+			//	p2 = curve->Value(l);
+			//}
+			//else {
+			//	TopoDS_Vertex v1, v2;
+			//	TopExp::Vertices(edge, v1, v2); // 获取 edge 两端顶点
+			//	p1 = BRep_Tool::Pnt(v1);
+			//	p2 = BRep_Tool::Pnt(v2);
+			//}
+
+			visibledxf << "0\nLINE\n8\n0\n";
+			visibledxf << "10\n" << p1.X() << "\n20\n" << p1.Y() << "\n30\n" << p1.Z() << "\n";
+			visibledxf << "11\n" << p2.X() << "\n21\n" << p2.Y() << "\n31\n" << p2.Z() << "\n";
+		}
+		visibledxf << "0\nENDSEC\n0\nEOF\n";
+
+
+
+		//std::vector<TopoDS_Edge> contourEdges;
+		//for (int i = 1; i <= edgeToFaces.Extent(); i++) {
+		//	const TopoDS_Edge& edge = TopoDS::Edge(edgeToFaces.FindKey(i));
+		//	const TopTools_ListOfShape& faces = edgeToFaces.FindFromIndex(i);
+
+		//	if (faces.Extent() == 2) {
+		//		// 计算两个面的法向量
+		//		gp_Vec normal1 = GetFaceNormal(faces.First());
+		//		gp_Vec normal2 = GetFaceNormal(faces.Last());
+
+		//		// 检查法向量与视图方向的点积符号是否不同
+		//		double dot1 = normal1.Dot(viewDir);
+		//		double dot2 = normal2.Dot(viewDir);
+
+		//		if ((dot1 * dot2 < 0)) {
+		//			contourEdges.push_back(edge);
+		//		}
+		//		else if ((std::abs(dot1) == 1 && std::abs(dot2) == 0) || (std::abs(dot1) == 0 && std::abs(dot2) == 1)) {
+		//			contourEdges.push_back(edge);
+		//		}
+		//	}
+		//	else if (faces.Extent() == 1) {
+		//		//自由边
+		//		contourEdges.push_back(edge);
+		//	}
+		//}
+		//////写dxf
+		//std::ofstream dxf("hlr.dxf");
 		//dxf << "0\nSECTION\n2\nENTITIES\n";
-		//for (TopExp_Explorer exp(visibleEdges, TopAbs_EDGE); exp.More(); exp.Next()) {
-		//	TopoDS_Edge edge = TopoDS::Edge(exp.Current());
+		//for (auto contourEdge : contourEdges) {
 		//	gp_Pnt p1;
 		//	gp_Pnt p2;
 
 		//	TopoDS_Vertex v1, v2;
-		//	TopExp::Vertices(edge, v1, v2); // 获取 edge 两端顶点
+		//	TopExp::Vertices(contourEdge, v1, v2); // 获取 edge 两端顶点
 		//	p1 = BRep_Tool::Pnt(v1);
 		//	p2 = BRep_Tool::Pnt(v2);
-
-		//	//Standard_Real f, l;
-		//	//Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, f, l);
-		//	//if (!curve.IsNull()) {
-		//	//	p1 = curve->Value(f);
-		//	//	p2 = curve->Value(l);
-		//	//}
-		//	//else {
-		//	//	TopoDS_Vertex v1, v2;
-		//	//	TopExp::Vertices(edge, v1, v2); // 获取 edge 两端顶点
-		//	//	p1 = BRep_Tool::Pnt(v1);
-		//	//	p2 = BRep_Tool::Pnt(v2);
-		//	//}
 
 		//	dxf << "0\nLINE\n8\n0\n";
 		//	dxf << "10\n" << p1.X() << "\n20\n" << p1.Y() << "\n30\n" << p1.Z() << "\n";
 		//	dxf << "11\n" << p2.X() << "\n21\n" << p2.Y() << "\n31\n" << p2.Z() << "\n";
 		//}
 		//dxf << "0\nENDSEC\n0\nEOF\n";
-
-
 
 		////获取轮廓边
 
