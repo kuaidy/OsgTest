@@ -14,7 +14,7 @@ include_directories("C:/MyProject/OsgTest/ThirdParty/occt/install/inc")
 link_directories("C:/MyProject/OsgTest/ThirdParty/occt/install/win64/vc14/libd")
 
 # 将源代码添加到此项目的可执行文件。
-add_executable (OsgTest "OsgTest.cpp" "OsgTest.h" "CameraQuatRotateHandler.cpp" "CameraQuatRotateHandler.h" "MyTrackballManipulator.cpp" "GltfManager.h" "GltfManager.cpp")
+add_executable (OsgTest "OsgTest.cpp" "OsgTest.h" "CameraQuatRotateHandler.cpp" "CameraQuatRotateHandler.h" "MyTrackballManipulator.cpp" "GltfManager.h" "GltfManager.cpp" "Mesh.h" "Mesh.cpp" "DxfManager.h" "DxfManager.cpp" "Edge.h" "Face.h")
 
 if (CMAKE_VERSION VERSION_GREATER 3.12)
   set_property(TARGET OsgTest PROPERTY CXX_STANDARD 20)
